@@ -1,5 +1,5 @@
 name: Demo CI Pipeline
- 
+
 on:
   push:
     branches: [ main, develop ]
