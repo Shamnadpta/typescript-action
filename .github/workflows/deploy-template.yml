@@ -1,16 +1,13 @@
-
- 
-name: Shared Deployment Blueprint
- 
 on:
   workflow_call:
     inputs:
       environment-name:
         required: true
         type: string
-        description: "The targeted GitHub environment name (e.g., dev, uat, prod)"
+        description: "The targeted GitHub environment name (e.g. dev, uat, prod)"
  
 permissions:
+  actions: read
   contents: read
  
 jobs:
@@ -18,19 +15,19 @@ jobs:
     name: Deploy to ${{ inputs.environment-name }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment-name }}
-    # if: |
-    #   github.ref == 'refs/heads/main' &&
-    #   github.event.workflow_run.conclusion == 'success'
  
     steps:
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: node-app
+          path: .
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
  
-      - name: Verify Build Artifact
+      - name: Verify build artifact exists
         run: test -f dist/index.js
-       # 2. Copy compiled dist/, package.json, and package-lock.json to the VM
+ 
       - name: Copy build files to Windows VM via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -40,17 +37,23 @@ jobs:
           source: "dist/**,package.json,package-lock.json"
           target: "C:/apps/shamnad"
  
-      # 3. Install production-only dependencies on the VM and restart PM2
-      - name: Install prod dependencies and restart PM2 via SSH
+      - name: Install prod dependencies and restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           password: ${{ secrets.VM_PASSWORD }}
           script: |
-            powershell -Command "
-              cd C:\apps\shamnad;
-              npm ci --omit=dev;
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "
+              Set-Location 'C:\apps\shamnad';
+              npm ci --omit=dev_1;
+              if (Get-Process pm2 -ErrorAction SilentlyContinue) {
+                pm2 restart my-ts-app
+              } else {
+                pm2 start dist/index.js --name my-ts-app
+              }
+              pm2 save
+            "
               pm2 restart my-ts-app || pm2 start dist/index.js --name my-ts-app;
               pm2 save
             "
